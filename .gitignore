@@ -1,0 +1,6 @@
+build/
+node_modules/
+.env
+.mcp
+dist/
+user_tools/

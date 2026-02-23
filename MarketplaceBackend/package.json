@@ -1,0 +1,36 @@
+{
+  "name": "marketplacebackend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@skalenetwork/bite": "^0.7.1",
+    "@x402/core": "^2.3.1",
+    "@x402/evm": "^2.3.1",
+    "@x402/express": "^2.3.0",
+    "agentic-payments": "^0.1.13",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "ethers": "^6.16.0",
+    "express": "^5.2.1",
+    "groq-sdk": "^0.37.0",
+    "mongoose": "^9.2.1",
+    "node-fetch": "^3.3.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anuragsinghbhandari/MarketplaceBackend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/anuragsinghbhandari/MarketplaceBackend/issues"
+  },
+  "homepage": "https://github.com/anuragsinghbhandari/MarketplaceBackend#readme"
+}

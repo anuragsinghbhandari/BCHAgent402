@@ -1,0 +1,45 @@
+🚀 MCP Tool Server running on port 3000
+🔗 Chain: BNB Smart Chain Testnet (Chain ID: 97)
+💰 Token: 0x84b9B910527Ad5C03A9Ca831909E21e236EA7b06
+🔒 Escrow Contract: 0x14b848bE61C159908C0F1127C53Aa70dD0F2cBed
+Connected to MongoDB
+[Persistence] Loaded 11 custom tools from MongoDB.
+[DEBUG] Incoming Request: GET /
+[DEBUG] Incoming Request: GET /tools
+[Server] Fetching marketplace tools list
+[DEBUG] Incoming Request: OPTIONS /gemini/chat
+[DEBUG] Incoming Request: POST /gemini/chat
+[DEBUG] Incoming Request: OPTIONS /tools/get_weather
+[DEBUG] Incoming Request: POST /tools/get_weather
+[x402] No payment for get_weather. Issuing 402 → escrow: 0x14b848bE61C159908C0F1127C53Aa70dD0F2cBed
+[DEBUG] Incoming Request: OPTIONS /tools/get_weather
+[DEBUG] Incoming Request: POST /tools/get_weather
+[x402] Verifying payment for get_weather...
+[x402] ✓ Payment verified: 0.01 TOKEN from 0x22AE96F33D3178fAF348DFD22e24443E6DAfe02C to escrow
+[x402] Payment verified → executing tool get_weather...
+[Execution] Running dynamic tool: get_weather
+[x402] ✓ Tool get_weather succeeded → releasing escrow to 0x03FffAa8a56f3faF2829883c2aA62B8Bf89b9E5f
+[x402] ✓ Escrow released to 0x03FffAa8a56f3faF2829883c2aA62B8Bf89b9E5f (tx: 0x9ddf3000171ac97690de8b974feec9d8a0c4871d22459d32413960eabc38e46b)
+[DEBUG] Incoming Request: OPTIONS /gemini/chat
+[DEBUG] Incoming Request: POST /gemini/chat
+[DEBUG] Incoming Request: GET /
+[DEBUG] Incoming Request: GET /tools
+[Server] Fetching marketplace tools list
+[DEBUG] Incoming Request: GET /
+[DEBUG] Incoming Request: GET /tools
+[Server] Fetching marketplace tools list
+[DEBUG] Incoming Request: GET /
+[DEBUG] Incoming Request: GET /tools
+[Server] Fetching marketplace tools list
+[DEBUG] Incoming Request: GET /
+[DEBUG] Incoming Request: GET /tools
+[Server] Fetching marketplace tools list
+[DEBUG] Incoming Request: GET /
+[DEBUG] Incoming Request: GET /tools
+[Server] Fetching marketplace tools list
+[DEBUG] Incoming Request: OPTIONS /tools
+[DEBUG] Incoming Request: GET /tools
+[Server] Fetching marketplace tools list
+[DEBUG] Incoming Request: GET /
+[DEBUG] Incoming Request: GET /tools
+[Server] Fetching marketplace tools list
