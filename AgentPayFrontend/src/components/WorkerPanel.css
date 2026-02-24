@@ -161,3 +161,16 @@
     flex-shrink: 0;
     font-variant-numeric: tabular-nums;
 }
+
+.worker-bch {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    color: #555;
+}
+
+.worker-ondemand {
+    font-size: 0.75em;
+    color: #aaa;
+    font-style: italic;
+    letter-spacing: 0.02em;
+}

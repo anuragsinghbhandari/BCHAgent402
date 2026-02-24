@@ -177,7 +177,7 @@ const Marketplace = () => {
                                     </div>
                                     <div className="price-item">
                                         <span className="price-label">Payment method:</span>
-                                        <span className="payment-method">SmartBCH Testnet (TOKEN)</span>
+                                        <span className="payment-method">BCH chipnet (tBCH)</span>
                                     </div>
                                 </div>
                             </section>

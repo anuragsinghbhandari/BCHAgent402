@@ -145,3 +145,57 @@
     color: var(--text-primary);
     line-height: 1.5;
 }
+
+/* ── Chipnet Explorer Link ─────────────────────────────── */
+.explorer-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    text-decoration: none;
+    color: inherit;
+    max-width: 100%;
+}
+
+.explorer-link:hover .explorer-badge {
+    background: #1a3c34;
+    color: #00e676;
+}
+
+.explorer-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-family: var(--font-mono);
+    font-size: 0.72em;
+    font-weight: 700;
+    background: #00c853;
+    color: white;
+    padding: 2px 7px;
+    border-radius: 3px;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s;
+    letter-spacing: 0.03em;
+}
+
+.tx-code {
+    font-family: monospace;
+    font-size: 0.8em;
+    color: #555;
+    background: #f0f0f0;
+    padding: 2px 5px;
+    border-radius: 2px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
+}
+
+.dropdown-arrow {
+    transition: transform 0.2s ease;
+    color: #999;
+}
+
+.dropdown-arrow.expanded {
+    transform: rotate(180deg);
+}

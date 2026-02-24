@@ -1,164 +1,102 @@
-import { ethers } from 'ethers';
-import { BCH_CHAIN, TOKEN_ADDRESS, TOKEN_DECIMALS } from '../config/bch';
+/**
+ * BCH Agent Wallet — mainnet-js based
+ *
+ * Manages a local BCH wallet (chipnet testnet) for the AI agent.
+ * Key is stored in localStorage as WIF format.
+ * Uses mainnet-js TestNetWallet for all BCH operations.
+ */
+import { TestNetWallet } from 'mainnet-js';
+import { CHIPNET, SATOSHIS_PER_BCH } from '../config/chipnet';
 
-const STORAGE_KEY = 'agent402_wallet_key';
-// Removed distinct RPC_URL constant to use FallbackProvider in getProvider()
-let agentWallet = null;
+const STORAGE_KEY = 'agent402_bch_wif';
+let _wallet = null;
 
-const getProvider = () => {
-    // Create an array of providers from our RPC URLs
-    const providers = BCH_CHAIN.rpcUrls.map((url, i) => {
-        return new ethers.JsonRpcProvider(url, BCH_CHAIN.id, {
-            staticNetwork: true,
-            batchMaxCount: 1, // Minimize batching to avoid rate limits on some nodes
-        });
-    });
+/**
+ * Get or create the agent's BCH wallet (chipnet).
+ * @returns {Promise<TestNetWallet>}
+ */
+export const getAgentWallet = async () => {
+    if (_wallet) return _wallet;
 
-    // Create a FallbackProvider that will automatically round-robin and retry
-    return new ethers.FallbackProvider(providers, 1);
-};
-
-export const getAgentWallet = () => {
-    if (agentWallet) return agentWallet;
-
-    const provider = getProvider();
-    let privateKey = localStorage.getItem(STORAGE_KEY);
-
-    if (!privateKey) {
-        const newWallet = ethers.Wallet.createRandom();
-        privateKey = newWallet.privateKey;
-        localStorage.setItem(STORAGE_KEY, privateKey);
-        console.log('[AgentWallet] New wallet generated:', newWallet.address);
+    let wif = localStorage.getItem(STORAGE_KEY);
+    if (wif) {
+        _wallet = await TestNetWallet.fromWIF(wif);
+        console.log('[AgentWallet] Loaded BCH wallet:', _wallet.getDepositAddress());
+    } else {
+        _wallet = await TestNetWallet.newRandom();
+        const newWif = _wallet.privateKeyWif;
+        localStorage.setItem(STORAGE_KEY, newWif);
+        console.log('[AgentWallet] Generated new BCH wallet:', _wallet.getDepositAddress());
     }
 
-    agentWallet = new ethers.Wallet(privateKey, provider);
-    console.log('[AgentWallet] Loaded:', agentWallet.address);
-    return agentWallet;
+    return _wallet;
 };
 
-export const getAgentAddress = () => {
-    return getAgentWallet().address;
+/** Cash address of the agent wallet (cashaddr format: bchtest:q...) */
+export const getAgentAddress = async () => {
+    const w = await getAgentWallet();
+    return w.getDepositAddress();
 };
 
-export const hasAgentWallet = () => {
-    return !!localStorage.getItem(STORAGE_KEY);
+/** Get WIF key of the agent wallet */
+export const getAgentWIF = () => localStorage.getItem(STORAGE_KEY);
+
+/** Check if a wallet key is stored */
+export const hasAgentWallet = () => !!localStorage.getItem(STORAGE_KEY);
+
+/**
+ * Get BCH balance of the agent wallet
+ * @returns {{ bch: string, satoshis: bigint }}
+ */
+export const getAgentBalance = async () => {
+    const w = await getAgentWallet();
+    const bal = await w.getBalance('sat');
+    const satoshis = BigInt(bal);
+    const bch = (Number(satoshis) / 1e8).toFixed(6);
+    return { bch, satoshis };
 };
 
-export const getAgentBalances = async (tokenAddress) => {
-    const wallet = getAgentWallet();
-    const provider = wallet.provider;
-    const tokenAddr = tokenAddress || TOKEN_ADDRESS;
-
-    const [bchBal, tokenBal] = await Promise.all([
-        provider.getBalance(wallet.address),
-        (async () => {
-            if (!tokenAddr) return BigInt(0);
-            const token = new ethers.Contract(
-                tokenAddr,
-                ['function balanceOf(address) view returns (uint256)'],
-                provider
-            );
-            return token.balanceOf(wallet.address);
-        })()
-    ]);
-
-    return {
-        bch: ethers.formatEther(bchBal),
-        token: ethers.formatUnits(tokenBal, TOKEN_DECIMALS),
-        bchRaw: bchBal,
-        tokenRaw: tokenBal,
-        sfuel: ethers.formatEther(bchBal),
-        usdc: ethers.formatUnits(tokenBal, TOKEN_DECIMALS),
-        sfuelRaw: bchBal,
-        usdcRaw: tokenBal
-    };
+/**
+ * Send BCH from the agent wallet to a destination address.
+ * @param {string} toAddress cashaddr destination
+ * @param {bigint} satoshis amount in satoshis
+ * @returns {{ txId: string }}
+ */
+export const sendFromAgent = async (toAddress, satoshis) => {
+    const w = await getAgentWallet();
+    const result = await w.send([{ cashaddr: toAddress, value: Number(satoshis), unit: 'sat' }]);
+    console.log('[AgentWallet] Sent', satoshis, 'sat to', toAddress, '| tx:', result.txId);
+    return { txId: result.txId };
 };
 
-export const fundAgentWallet = async (tokenAddress, amount) => {
-    if (!window.ethereum) throw new Error('MetaMask not found');
-
-    await ensureNetwork();
-    const tokenAddr = tokenAddress || TOKEN_ADDRESS;
-    const browserProvider = new ethers.BrowserProvider(window.ethereum);
-    const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-    if (!accounts || accounts.length === 0) {
-        await window.ethereum.request({ method: 'eth_requestAccounts' });
-    }
-    const metamaskAccounts = await window.ethereum.request({ method: 'eth_accounts' });
-    const signer = await browserProvider.getSigner(metamaskAccounts[0]);
-
-    const token = new ethers.Contract(
-        tokenAddr,
-        ['function transfer(address to, uint256 amount) returns (bool)'],
-        signer
-    );
-
-    const agentAddr = getAgentAddress();
-    const amountUnits = ethers.parseUnits(amount.toString(), TOKEN_DECIMALS);
-
-    console.log(`[AgentWallet] Funding ${agentAddr} with ${amount} TOKEN from MetaMask...`);
-    const tx = await token.transfer(agentAddr, amountUnits);
-    await tx.wait();
-    console.log(`[AgentWallet] Funded! Tx: ${tx.hash}`);
-    return tx.hash;
-};
-
-export const fundAgentBCH = async (amount = '0.005') => {
-    if (!window.ethereum) throw new Error('MetaMask not found');
-
-    await ensureNetwork();
-    const browserProvider = new ethers.BrowserProvider(window.ethereum);
-    const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-    if (!accounts || accounts.length === 0) {
-        await window.ethereum.request({ method: 'eth_requestAccounts' });
-    }
-    const metamaskAccounts = await window.ethereum.request({ method: 'eth_accounts' });
-    const signer = await browserProvider.getSigner(metamaskAccounts[0]);
-
-    const agentAddr = getAgentAddress();
-    const value = ethers.parseEther(amount);
-
-    console.log(`[AgentWallet] Funding ${agentAddr} with ${amount} BCH from MetaMask...`);
-    const tx = await signer.sendTransaction({ to: agentAddr, value });
-    await tx.wait();
-    console.log(`[AgentWallet] BCH funded! Tx: ${tx.hash}`);
-    return tx.hash;
-};
-
-const ensureNetwork = async () => {
-    if (!window.ethereum) return;
-    const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
-    const requiredChainId = '0x' + BCH_CHAIN.id.toString(16);
-
-    if (chainIdHex !== requiredChainId) {
-        try {
-            await window.ethereum.request({
-                method: 'wallet_switchEthereumChain',
-                params: [{ chainId: requiredChainId }],
-            });
-        } catch (error) {
-            if (error.code === 4902) {
-                await window.ethereum.request({
-                    method: 'wallet_addEthereumChain',
-                    params: [{
-                        chainId: requiredChainId,
-                        chainName: BCH_CHAIN.name,
-                        rpcUrls: BCH_CHAIN.rpcUrls,
-                        nativeCurrency: BCH_CHAIN.nativeCurrency,
-                        blockExplorerUrls: BCH_CHAIN.blockExplorerUrls
-                    }],
-                });
-            } else {
-                throw error;
-            }
-        }
+/**
+ * Import an existing WIF private key as the agent wallet.
+ * @param {string} wif  WIF-encoded private key
+ * @returns {Promise<string>} the cashaddr address of the imported wallet
+ */
+export const importAgentWallet = async (wif) => {
+    try {
+        const w = await TestNetWallet.fromWIF(wif.trim());
+        localStorage.setItem(STORAGE_KEY, wif.trim());
+        _wallet = w;
+        const addr = w.getDepositAddress();
+        console.log('[AgentWallet] Imported wallet:', addr);
+        return addr;
+    } catch (e) {
+        throw new Error('Invalid WIF key: ' + e.message);
     }
 };
 
-export const fundAgentSFuel = fundAgentBCH;
-
+/** Reset — generate a new wallet */
 export const resetAgentWallet = () => {
     localStorage.removeItem(STORAGE_KEY);
-    agentWallet = null;
+    _wallet = null;
     console.log('[AgentWallet] Wallet reset');
+};
+
+// Legacy compat stubs
+export const getAgentPrivateKey = () => localStorage.getItem(STORAGE_KEY);
+export const getAgentBalances = async () => {
+    const b = await getAgentBalance();
+    return { bch: b.bch, token: b.bch, bchRaw: b.satoshis };
 };

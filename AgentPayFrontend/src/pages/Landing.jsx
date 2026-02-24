@@ -18,7 +18,7 @@ const Landing = () => {
                     </h1>
                     <p className="hero-subtitle">
                         The open standard for machine-to-machine commerce. <br />
-                        Powered by Smart Bitcoin Cash Testnet and a custom escrow contract.
+                        Powered by BCH chipnet — real micropayments, no smart contracts needed.
                     </p>
                     <div className="hero-ctas">
                         <Button
@@ -40,13 +40,14 @@ const Landing = () => {
                 </div>
             </section>
 
-            {/* SECTION 1: AP2 STANDARD (The Protocol) */}
+            {/* SECTION 1: x402 Protocol Flow */}
             <section className="protocol-section">
                 <div className="container">
-                    <span className="section-label">THE STANDARD</span>
-                    <h2 className="section-title">x402 PROTOCOL FLOW</h2>
+                    <span className="section-label">THE PROTOCOL</span>
+                    <h2 className="section-title">x402 ON BCH CHIPNET</h2>
                     <p className="section-subtitle">
-                        A standardized HTTP 402 implementation for agent-to-agent transactions.
+                        A standardized HTTP 402 implementation for autonomous agent transactions,
+                        settled in native BCH — fast, cheap, and censorship-resistant.
                     </p>
 
                     <div className="step-list">
@@ -54,102 +55,102 @@ const Landing = () => {
                             <div className="step-number">01</div>
                             <div className="step-title">INTENT</div>
                             <div className="step-desc">
-                                User discovers tool via AI Agent Registry. <br />
-                                Agent negotiates pricing via HTTP 402 negotiation headers.
+                                Agent discovers tool via AI marketplace. <br />
+                                Server runs the tool immediately — <strong>no payment needed yet</strong>.
                             </div>
                         </div>
                         <div className="step-item">
                             <div className="step-number">02</div>
-                            <div className="step-title">AUTH</div>
+                            <div className="step-title">402 CHALLENGE</div>
                             <div className="step-desc">
-                                Agent signs a cryptographic mandate (DID) authorizing payment. <br />
-                                No API keys. Payment IS validation.
+                                If the tool succeeds, the server returns HTTP 402 with a <strong>resultId</strong>
+                                and a BCH payment address. Tool cost displayed in USD.
                             </div>
                         </div>
                         <div className="step-item">
                             <div className="step-number">03</div>
-                            <div className="step-title">SETTLE</div>
+                            <div className="step-title">BCH PAYMENT</div>
                             <div className="step-desc">
-                                Instant settlement on Smart Bitcoin Cash Testnet. <br />
-                                Token payments secured by a custom escrow contract.
+                                Worker wallet sends <strong>native tBCH</strong> directly to the tool provider.
+                                No EVM. No gas. Transaction confirms in seconds.
                             </div>
                         </div>
                         <div className="step-item">
                             <div className="step-number">04</div>
                             <div className="step-title">DELIVER</div>
                             <div className="step-desc">
-                                Tool executes and returns data payload with cryptographic proof of payment.
+                                Agent sends the <strong>tx hash + resultId</strong> to claim the pre-executed result.
+                                Verifiable on BCH chipnet explorer.
                             </div>
                         </div>
                     </div>
                 </div>
             </section>
 
-            {/* SECTION 2: BITE v2 ENGINE (The Escrow Logic) */}
+            {/* SECTION 2: Refund Guarantee (BCH-native, no smart contracts) */}
             <section className="protocol-section" style={{ background: '#000', color: '#fff' }}>
                 <div className="container">
-                    <span className="section-label" style={{ color: '#ccc' }}>THE ENGINE</span>
-                    <h2 className="section-title" style={{ color: '#fff' }}>CUSTOM ESCROW</h2>
+                    <span className="section-label" style={{ color: '#ccc' }}>THE GUARANTEE</span>
+                    <h2 className="section-title" style={{ color: '#fff' }}>EXECUTE-FIRST · PAY-TO-CLAIM</h2>
                     <p className="section-subtitle" style={{ color: '#ccc', borderLeftColor: '#fff' }}>
-                        Trustless orchestration engine for conditional payments and parallel execution.
+                        Refund-safe by design — no smart contract or escrow needed on native BCH.
                     </p>
 
                     <div className="swiss-grid">
                         <div className="grid-cell dark">
-                            <h3 className="cell-title">ESCROW LOCK</h3>
+                            <h3 className="cell-title">NO UPFRONT RISK</h3>
                             <p className="cell-desc">
-                                Funds are programmatically locked in a smart contract, not sent directly to the vendor.
-                                Solves the "delivery risk" problem in autonomous systems.
+                                Tools run <strong>before payment is charged</strong>. If the tool fails,
+                                no BCH is spent — the agent simply receives an error, not a bill.
                             </p>
                         </div>
                         <div className="grid-cell dark">
                             <h3 className="cell-title">ON-CHAIN PROOF</h3>
                             <p className="cell-desc">
-                                A cryptographic receipt (Proof-of-Escrow) is generated, serving as a bonded guarantee
-                                for the tool provider to begin work.
+                                Every successful payment generates a BCH transaction hash,
+                                verifiable on <strong>chipnet.imaginary.cash</strong> — a permanent, immutable record.
                             </p>
                         </div>
                         <div className="grid-cell dark">
-                            <h3 className="cell-title">PARALLEL EXEC</h3>
+                            <h3 className="cell-title">PARALLEL WORKERS</h3>
                             <p className="cell-desc">
-                                Since payments are non-blocking async events, a single agent can trigger
-                                100+ tool executions simultaneously without sequence errors.
+                                4 independent worker wallets run tool calls concurrently.
+                                Each funded from the agent wallet on demand — budget stays in control.
                             </p>
                         </div>
                         <div className="grid-cell dark">
-                            <h3 className="cell-title">CONDITIONAL RELEASE</h3>
+                            <h3 className="cell-title">5-MIN RESULT WINDOW</h3>
                             <p className="cell-desc">
-                                Funds are only released when the tool provides a valid result.
-                                Failures trigger an instant programmatic refund to the agent.
+                                Pre-executed results are cached for 5 minutes. Pay and claim with the
+                                resultId. Expired results are discarded — no runaway charges.
                             </p>
                         </div>
                     </div>
                 </div>
             </section>
 
-            {/* SECTION 3: USE CASES (Grid) */}
+            {/* SECTION 3: Use Cases */}
             <section className="protocol-section">
                 <div className="container">
                     <span className="section-label">UTILITY</span>
                     <h2 className="section-title">USE CASES</h2>
 
                     <div className="swiss-grid col-2">
-                        {/* CSS grid defaults to 2 cols, can make 4 with helper class if added */}
                         <div className="grid-cell">
                             <h3 className="cell-title">API MONETIZATION</h3>
-                            <p className="cell-desc">Zero-friction revenue. No user accounts required.</p>
+                            <p className="cell-desc">Charge BCH per API call. No user accounts, no subscriptions, no middlemen.</p>
                         </div>
                         <div className="grid-cell">
                             <h3 className="cell-title">AGENT SWARMS</h3>
-                            <p className="cell-desc">Orchestrate multi-agent systems with shared bankrolls.</p>
+                            <p className="cell-desc">Orchestrate multi-agent systems with a shared BCH bankroll and worker pool.</p>
                         </div>
                         <div className="grid-cell">
                             <h3 className="cell-title">PAY-PER-PROMPT</h3>
-                            <p className="cell-desc">Access LLMs without monthly subscriptions.</p>
+                            <p className="cell-desc">Metered AI tool access for cents per call — priced in USD, settled in BCH.</p>
                         </div>
                         <div className="grid-cell">
                             <h3 className="cell-title">ZERO-RISK TRIALS</h3>
-                            <p className="cell-desc">Trustless escrow ensures fair play for new users.</p>
+                            <p className="cell-desc">Execute-first model means failed tools never charge the agent. Test freely.</p>
                         </div>
                     </div>
                 </div>
@@ -164,7 +165,7 @@ const Landing = () => {
                                 AGENT PAY
                             </div>
                             <p style={{ maxWidth: '300px', lineHeight: '1.6' }}>
-                                The financial layer for the autonomous agent economy. Built on SmartBCH &amp; x402.
+                                The financial layer for the autonomous agent economy. Built on BCH &amp; x402.
                             </p>
                         </div>
 
@@ -173,20 +174,21 @@ const Landing = () => {
                                 <h4>PRODUCT</h4>
                                 <a href="/agent">Agent Interface</a>
                                 <a href="/marketplace">Marketplace</a>
+                                <a href="/add-tool">Add Tool</a>
                             </div>
 
                             <div className="footer-column">
                                 <h4>RESOURCES</h4>
-                                <a href="https://blockhead.info/explorer/smartbch-testnet" target="_blank" rel="noopener noreferrer">SmartBCH Testnet Explorer</a>
+                                <a href="https://chipnet.imaginary.cash" target="_blank" rel="noopener noreferrer">BCH Chipnet Explorer</a>
+                                <a href="https://tbch.googol.cash" target="_blank" rel="noopener noreferrer">Get tBCH (Faucet)</a>
                                 <a href="https://x402.org" target="_blank" rel="noopener noreferrer">x402 Protocol</a>
                             </div>
-
                         </div>
                     </div>
 
                     <div className="footer-bottom">
                         <p>
-                            POWERED BY <span className="stellar-badge">BCH</span> <span className="x402-badge">x402</span>
+                            POWERED BY <span className="stellar-badge">BCH CHIPNET</span> <span className="x402-badge">x402</span>
                         </p>
                         <div style={{ marginTop: '16px' }}>
                             © 2026 AGENT402. PAY PER USE AGENT ECONOMY

@@ -29,7 +29,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('Connected to MongoDB'))
+  .then(async () => {
+    console.log('Connected to MongoDB');
+    await loadTools();
+  })
   .catch(err => console.error('Could not connect to MongoDB', err));
 
 let dynamicRoutes = {};
@@ -192,258 +195,371 @@ Each tool has a monetary cost stated in its description. Consider cost when sele
   }
 });
 
-const BCH_RPC = process.env.BCH_RPC || "https://moeing.tech:9545"; // Default backup if no env
-const BCH_CHAIN_ID = 10001;
-const TOKEN_CONTRACT_ADDR = "0x84b9B910527Ad5C03A9Ca831909E21e236EA7b06";
-const TOKEN_DECIMALS = 18;
+// BCH Chipnet (native BCH testnet) configuration
+const CHIPNET_NETWORK = 'chipnet';
+const CHIPNET_EXPLORER = 'https://chipnet.imaginary.cash/tx/';
+const TOOL_PROVIDER_ADDR = process.env.TOOL_PROVIDER_ADDR || '';
+// Default tool price in USD (tool.price in DB is USD)
+const DEFAULT_TOOL_PRICE_USD = parseFloat(process.env.DEFAULT_TOOL_PRICE_USD || '0.05');
+const BCH_FALLBACK_USD = 330;  // used if CoinGecko is unreachable
 
-const ESCROW_CONTRACT_ADDR = process.env.ESCROW_CONTRACT_ADDRESS || "";
+/**
+ * Validate a BCH chipnet cashaddr.
+ * Valid addresses start with 'bchtest:' or 'bitcoincash:' followed by >=20 base32 chars.
+ * Rejects placeholders like 'bchtest:YOUR_BCH_ADDRESS_HERE'.
+ */
+const isValidBchAddr = (addr) => {
+  if (!addr) return false;
+  if (!/^(bchtest:|bitcoincash:)/i.test(addr)) return false;
+  const payload = addr.split(':')[1] || '';
+  // BCH base32 charset: q p z r y 9 x 8 g f 2 t v d w 0 s 3 j n 5 4 k h c e 6 m u a 7 l
+  if (!/^[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{20,}$/.test(payload)) return false;
+  return true;
+};
 
-class NonceQueue {
-  constructor() {
-    this.queue = [];
-    this.processing = false;
-  }
-
-  async enqueue(fn) {
-    return new Promise((resolve, reject) => {
-      this.queue.push({ fn, resolve, reject });
-      this._process();
-    });
-  }
-
-  async _process() {
-    if (this.processing || this.queue.length === 0) return;
-    this.processing = true;
-    while (this.queue.length > 0) {
-      const { fn, resolve, reject } = this.queue.shift();
-      try { resolve(await fn()); } catch (err) { reject(err); }
-    }
-    this.processing = false;
-  }
+const PROVIDER_PAYMENT_ENABLED = isValidBchAddr(TOOL_PROVIDER_ADDR);
+if (!PROVIDER_PAYMENT_ENABLED) {
+  console.warn('⚠️  [Payment] TOOL_PROVIDER_ADDR is not set or invalid.');
+  console.warn('   Tools will be served FOR FREE until you set a valid chipnet cashaddr in .env:');
+  console.warn('   TOOL_PROVIDER_ADDR=bchtest:q...');
+  console.warn('   Get tBCH from: https://tbch.googol.cash');
 }
 
-const escrowTxQueue = new NonceQueue();
+// ── BCH/USD price cache (fetched from CoinGecko, fallback $330) ─────────────
+let _bchUsdPrice = BCH_FALLBACK_USD;
+let _priceLastFetched = 0;
+const PRICE_TTL_MS = 5 * 60 * 1000;  // 5 minutes
+
+const fetchBchUsdPrice = async () => {
+  const now = Date.now();
+  if (now - _priceLastFetched < PRICE_TTL_MS) return _bchUsdPrice;
+  try {
+    const res = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin-cash&vs_currencies=usd',
+      { signal: AbortSignal.timeout(4000) }
+    );
+    if (!res.ok) throw new Error('non-OK');
+    const data = await res.json();
+    const price = data?.['bitcoin-cash']?.usd;
+    if (price && typeof price === 'number') {
+      _bchUsdPrice = price;
+      _priceLastFetched = now;
+      console.log(`[PriceService] BCH = $${price} USD`);
+    }
+  } catch (e) {
+    console.warn(`[PriceService] Using fallback $${BCH_FALLBACK_USD} (${e.message})`);
+  }
+  return _bchUsdPrice;
+};
+
+// Pre-fetch price on startup
+fetchBchUsdPrice();
+
+/**
+ * Verify a BCH chipnet transaction using mainnet-js electrum.
+ * Checks that the tx exists, has an output paying payToAddress at least priceSat satoshis.
+ */
+async function verifyBchPayment(txHash, payToAddress, priceSat) {
+  const { TestNetWallet } = await import('mainnet-js');
+  // Use a read-only wallet on chipnet to query the electrum network
+  const wallet = await TestNetWallet.newRandom();
+
+  // Retry up to 8 times (chipnet mempool propagation can take a few seconds)
+  let txData = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      txData = await wallet.provider.getRawTransactionObject(txHash);
+      if (txData) break;
+    } catch (_) { }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+
+  if (!txData) throw new Error(`BCH tx ${txHash} not found on chipnet after retries`);
+
+  // Check outputs for matching cashaddr + amount
+  const outputs = txData.vout || [];
+  let totalPaidSat = 0;
+  for (const out of outputs) {
+    const outAddr = out.scriptPubKey?.addresses?.[0] || out.scriptPubKey?.address || '';
+    // Normalise: compare without prefix
+    const normalise = (a) => a.replace(/^bchtest:/, '').replace(/^bitcoincash:/, '');
+    if (normalise(outAddr) === normalise(payToAddress)) {
+      // vout value is in BCH, convert to satoshis
+      totalPaidSat += Math.round((out.value || 0) * 1e8);
+    }
+  }
+
+  if (totalPaidSat < priceSat) {
+    throw new Error(`Insufficient BCH payment. Paid: ${totalPaidSat} sat, Required: ${priceSat} sat`);
+  }
+
+  return { totalPaidSat, txData };
+}
+
+// ── Execute-first / Pay-to-claim result cache ──────────────────────────────────
+// Replaces SmartBCH escrow contract: tool runs before payment is required.
+// If tool fails → no charge. If tool succeeds → client pays to unlock result.
+const pendingResults = new Map();  // resultId → { result, timestamp, toolName, priceSat }
+const RESULT_TTL_MS = 5 * 60 * 1000;  // 5-minute window to pay
+
+// Auto-cleanup expired entries
+setInterval(() => {
+  const expire = Date.now() - RESULT_TTL_MS;
+  for (const [id, entry] of pendingResults) {
+    if (entry.timestamp < expire) {
+      pendingResults.delete(id);
+      console.log(`[x402-bch] Expired unclaimed result for ${entry.toolName} (${id.slice(0, 8)})`);
+    }
+  }
+}, 60_000);
+
+/**
+ * Execute a tool by forwarding the request to its target URL.
+ * Used for the execute-first model: run the tool before requiring payment.
+ */
+async function executeToolForward(toolName, specificRoute, body) {
+  const { targetUrl } = specificRoute;
+  if (!targetUrl) return null;  // code tools don't have a targetUrl
+
+  const resp = await fetch(targetUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(12000),
+  });
+
+  const data = await resp.json();
+  return { ok: resp.ok, status: resp.status, data };
+}
+
+// Deduplicate seen tx hashes to prevent double-spend replay
+const seenTxHashes = new Set();
 
 app.use("/tools", async (req, res, next) => {
   const toolName = req.path.split('/')[1];
   if (!toolName) return next();
 
+
+
   const fullPath = `/tools/${toolName}`;
   const specificRoute = dynamicRoutes[fullPath];
 
-  if (specificRoute) {
-    const toolConfig = registeredProxies.get(toolName);
-    const toolProviderWallet = toolConfig?.walletAddress || process.env.DEFAULT_EVM_WALLET || "";
-    const escrowContractAddr = ESCROW_CONTRACT_ADDR;
+  if (!specificRoute) return next();
 
-    if (!escrowContractAddr) {
-      console.error("[x402] ESCROW_CONTRACT_ADDRESS not set in .env!");
-      return res.status(500).json({ error: "Escrow contract not configured. Set ESCROW_CONTRACT_ADDRESS in .env" });
-    }
+  const toolConfig = registeredProxies.get(toolName);
 
-    const priceInUnits = specificRoute.price
-      ? BigInt(Math.floor(Number(specificRoute.price) * (10 ** TOKEN_DECIMALS))).toString()
-      : BigInt(1 * (10 ** TOKEN_DECIMALS)).toString();
+  // Skip payment entirely if TOOL_PROVIDER_ADDR is not configured with a real BCH address
+  if (!PROVIDER_PAYMENT_ENABLED) {
+    console.log(`[x402-bch] Payment skipped for "${toolName}" (TOOL_PROVIDER_ADDR not set — free mode)`);
+    return next();
+  }
 
-    const xPaymentHeader = req.headers['x-payment'];
-    const xPaymentTx = req.headers['x-payment-tx'];
+  // Only use DB walletAddress if it's a valid BCH cashaddr (bchtest: or bitcoincash:)
+  // Tools in the DB may have old EVM 0x addresses — we must not send BCH to those!
+  const dbWalletAddr = toolConfig?.walletAddress || '';
+  const toolProviderAddr = (isValidBchAddr(dbWalletAddr) ? dbWalletAddr : null) || TOOL_PROVIDER_ADDR;
 
-    if (!xPaymentHeader && !xPaymentTx) {
-      console.log(`[x402] No payment for ${toolName}. Issuing 402 → escrow: ${escrowContractAddr}`);
-      return res.status(402).json({
-        accepts: [
-          {
-            scheme: 'x402',
-            payTo: escrowContractAddr,
-            maxAmountRequired: priceInUnits,
-            asset: TOKEN_CONTRACT_ADDR,
-            network: `eip155:${BCH_CHAIN_ID}`,
-            escrowContract: escrowContractAddr,
-            toolProvider: toolProviderWallet,
-            description: `Payment for ${toolName} (via custom escrow on SmartBCH Testnet)`,
-            tokenDecimals: TOKEN_DECIMALS
-          }
-        ]
+  if (dbWalletAddr && !isValidBchAddr(dbWalletAddr)) {
+    console.warn(`[x402-bch] Tool "${toolName}" has EVM walletAddress (${dbWalletAddr.slice(0, 10)}...) — using TOOL_PROVIDER_ADDR instead`);
+  }
+
+  // Final check: even resolved address must be valid
+  if (!isValidBchAddr(toolProviderAddr)) {
+    console.warn(`[x402-bch] No valid payment address for "${toolName}" — serving for free`);
+    return next();
+  }
+
+
+  // tool.price is in USD — convert to BCH using live rate
+  const bchRate = await fetchBchUsdPrice();
+  const priceUSD = specificRoute.price ? parseFloat(specificRoute.price) : DEFAULT_TOOL_PRICE_USD;
+  const priceBCH = priceUSD / bchRate;
+  const priceSat = Math.ceil(priceBCH * 1e8);
+
+  const xPaymentHeader = req.headers['x-payment'];
+  const xPaymentTx = req.headers['x-payment-tx'];
+  const xResultId = req.headers['x-result-id'] || null;
+  const xPaymentChain = req.headers['x-payment-chain'] || '';
+
+  // ── Pay-to-claim: client has already paid and sends the resultId ──────────
+  if ((xPaymentTx || xPaymentHeader) && xResultId) {
+    const cached = pendingResults.get(xResultId);
+    if (!cached) {
+      console.warn(`[x402-bch] Result ${xResultId.slice(0, 8)} not found or expired`);
+      return res.status(410).json({
+        error: 'Result expired or not found. Tool result window is 5 minutes. Please retry.',
+        resultId: xResultId,
       });
     }
 
-    console.log(`[x402] Verifying payment for ${toolName}...`);
-    try {
-      const { ethers } = await import("ethers");
-      // Setup fallback provider for reliability
-      const rpcList = process.env.BCH_RPC ? process.env.BCH_RPC.split(',') : [BCH_RPC];
-      const providers = rpcList.map(url => new ethers.JsonRpcProvider(url.trim(), BCH_CHAIN_ID, { staticNetwork: true }));
-      const provider = new ethers.FallbackProvider(providers, 1);
-
-      let txHash = xPaymentTx;
-      let payerAddress = "";
-      let paidAmount = BigInt(0);
-
-      if (xPaymentHeader) {
-        try {
-          const payloadStr = Buffer.from(xPaymentHeader, 'base64').toString('utf-8');
-          const payload = JSON.parse(payloadStr);
-          txHash = txHash || payload.txHash;
-          payerAddress = payload.from || "";
-          paidAmount = BigInt(payload.amount || 0);
-        } catch (e) {
-          console.warn("[x402] Could not parse X-Payment header:", e.message);
-        }
-      }
-
-      if (!txHash) {
-        return res.status(400).json({ error: "Missing payment transaction hash" });
-      }
-
-      let receipt = null;
-      for (let i = 0; i < 5; i++) {
-        receipt = await provider.getTransactionReceipt(txHash);
-        if (receipt) break;
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-
-      if (!receipt) {
-        return res.status(400).json({ error: "Transaction receipt not found on SmartBCH Testnet after retries" });
-      }
-
-      const TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
-      const transferLog = receipt.logs.find(log =>
-        log.address.toLowerCase() === TOKEN_CONTRACT_ADDR.toLowerCase() &&
-        log.topics[0] === TRANSFER_TOPIC
-      );
-
-      if (!transferLog) {
-        return res.status(403).json({ error: "No token transfer found in transaction" });
-      }
-
-      const toAddress = ethers.getAddress("0x" + transferLog.topics[2].slice(26));
-      const transferAmount = BigInt(transferLog.data);
-      const fromAddress = ethers.getAddress("0x" + transferLog.topics[1].slice(26));
-
-      if (toAddress.toLowerCase() !== escrowContractAddr.toLowerCase()) {
-        return res.status(403).json({
-          error: `Token sent to ${toAddress}, expected escrow contract ${escrowContractAddr}`
-        });
-      }
-
-      if (transferAmount < BigInt(priceInUnits)) {
-        return res.status(402).json({
-          error: `Insufficient payment. Expected ${priceInUnits}, got ${transferAmount}`
-        });
-      }
-
-      console.log(`[x402] ✓ Payment verified: ${ethers.formatUnits(transferAmount, TOKEN_DECIMALS)} TOKEN from ${fromAddress} to escrow`);
-
-      const serverReceipt = {
-        verified: true,
-        timestamp: new Date().toISOString(),
-        txHash,
-        payTo: escrowContractAddr,
-        toolProvider: toolProviderWallet,
-        amount: priceInUnits,
-        asset: TOKEN_CONTRACT_ADDR,
-        chain: "bch-testnet",
-        chainId: BCH_CHAIN_ID,
-        toolName,
-        verifiedBy: "x402-bch-escrow",
-        payer: fromAddress,
-        transferAmount: transferAmount.toString()
-      };
-
-      const originalJson = res.json.bind(res);
-      let responseStatusCode = 200;
-
-      const originalStatus = res.status.bind(res);
-      res.status = function (code) {
-        responseStatusCode = code;
-        return originalStatus(code);
-      };
-
-      res.json = async function (body) {
-        const toolSuccess = responseStatusCode >= 200 && responseStatusCode < 400 && body?.success !== false;
-        const escrowKey = process.env.ESCROW_PRIVATE_KEY;
-
-        if (toolSuccess) {
-          console.log(`[x402] ✓ Tool ${toolName} succeeded → releasing escrow to ${toolProviderWallet}`);
-
-          if (escrowKey && toolProviderWallet && escrowContractAddr) {
-            try {
-              const releaseTx = await escrowTxQueue.enqueue(async () => {
-                const escrowWallet = new ethers.Wallet(escrowKey, provider);
-                const escrowContract = new ethers.Contract(
-                  escrowContractAddr,
-                  ['function releasePaymentByTxHash(string calldata txHash, address toolProvider, uint256 amount) external'],
-                  escrowWallet
-                );
-                const tx = await escrowContract.releasePaymentByTxHash(txHash, toolProviderWallet, transferAmount);
-                await tx.wait();
-                return tx;
-              });
-              serverReceipt.escrowRelease = { status: "released", releaseTxHash: releaseTx.hash, releasedTo: toolProviderWallet };
-              console.log(`[x402] ✓ Escrow released to ${toolProviderWallet} (tx: ${releaseTx.hash})`);
-            } catch (releaseErr) {
-              console.warn(`[x402] Escrow release failed:`, releaseErr.message);
-              serverReceipt.escrowRelease = { status: "release-failed", error: releaseErr.message };
-            }
-          } else {
-            serverReceipt.escrowRelease = { status: "no-key", note: "ESCROW_PRIVATE_KEY not set" };
-          }
-        } else {
-          console.log(`[x402] ✗ Tool ${toolName} failed → refunding escrow to ${fromAddress}`);
-
-          if (escrowKey && fromAddress && escrowContractAddr) {
-            try {
-              const refundTx = await escrowTxQueue.enqueue(async () => {
-                const escrowWallet = new ethers.Wallet(escrowKey, provider);
-                const escrowContract = new ethers.Contract(
-                  escrowContractAddr,
-                  ['function refundPayment(string calldata txHash, address payer, uint256 amount) external'],
-                  escrowWallet
-                );
-                const tx = await escrowContract.refundPayment(txHash, fromAddress, transferAmount);
-                await tx.wait();
-                return tx;
-              });
-              serverReceipt.escrowRelease = { status: "refunded", refundTxHash: refundTx.hash, refundedTo: fromAddress };
-              console.log(`[x402] ↩ Escrow refunded to ${fromAddress} (tx: ${refundTx.hash})`);
-            } catch (refundErr) {
-              console.warn(`[x402] Escrow refund failed:`, refundErr.message);
-              serverReceipt.escrowRelease = { status: "refund-failed", error: refundErr.message };
-            }
-          } else {
-            serverReceipt.escrowRelease = { status: "no-key", note: "ESCROW_PRIVATE_KEY not set" };
-          }
-        }
-
-        res.set('X-Payment-Receipt', JSON.stringify(serverReceipt));
-        if (typeof body === 'object' && body !== null) {
-          body.escrowReceipt = serverReceipt;
-        }
-        return originalJson(body);
-      };
-
-      console.log(`[x402] Payment verified → executing tool ${toolName}...`);
-      next();
-
-    } catch (chainError) {
-      console.error("[x402] Verification Failed:", chainError);
-      return res.status(502).json({ error: "Payment Verification Failed", details: chainError.message });
+    // Verify BCH payment
+    let txHash = xPaymentTx;
+    if (xPaymentHeader) {
+      try {
+        const payload = JSON.parse(Buffer.from(xPaymentHeader, 'base64').toString('utf-8'));
+        txHash = txHash || payload.txHash;
+      } catch (e) { /* ignore */ }
     }
-  } else {
+
+    try {
+      const { totalPaidSat } = await verifyBchPayment(txHash, toolProviderAddr, cached.priceSat);
+      pendingResults.delete(xResultId);
+      console.log(`[x402-bch] ✅ Payment verified (${totalPaidSat} sat) for ${toolName} — delivering result`);
+      return res.json(cached.result);
+    } catch (e) {
+      console.warn(`[x402-bch] Payment verification failed for ${toolName}:`, e.message);
+      return res.status(402).json({ error: `Payment insufficient or not found: ${e.message}` });
+    }
+  }
+
+  // ── Execute-first: no payment yet — run tool, cache result, issue 402 ────
+  if (!xPaymentHeader && !xPaymentTx) {
+    // Execute tool NOW before requiring payment
+    let toolResult = null;
+    try {
+      toolResult = await executeToolForward(toolName, specificRoute, req.body);
+    } catch (e) {
+      console.warn(`[x402-bch] Tool "${toolName}" execution failed before payment:`, e.message);
+      return res.status(500).json({ error: `Tool execution failed: ${e.message}`, message: 'No payment charged.' });
+    }
+
+    // Tool doesn't support pre-execution (code tools) → fall through to next()
+    if (!toolResult) {
+      console.log(`[x402-bch] Code tool "${toolName}" — using standard payment flow`);
+      // For code tools: issue plain 402, payment verified then next() handles execution
+      return res.status(402).json({
+        accepts: [{
+          scheme: 'x402-bch',
+          payTo: toolProviderAddr,
+          priceUSD,
+          amount: priceBCH,
+          maxAmountRequired: priceBCH,
+          unit: 'BCH',
+          satoshis: priceSat,
+          bchUsdRate: bchRate,
+          network: 'bch:chipnet',
+          description: `Payment for ${toolName}: $${priceUSD.toFixed(2)} USD ≈ ${priceBCH.toFixed(6)} tBCH`,
+        }]
+      });
+    }
+
+    // Tool failed → return error, NO payment required
+    if (!toolResult.ok) {
+      console.log(`[x402-bch] Tool "${toolName}" returned ${toolResult.status} — no payment required`);
+      return res.status(toolResult.status || 500).json({
+        error: toolResult.data?.error || 'Tool execution failed',
+        message: 'No payment charged — tool failed before payment.',
+        noCost: true,
+      });
+    }
+
+    // Tool succeeded → cache result, issue 402 with resultId
+    const resultId = crypto.randomUUID();
+    pendingResults.set(resultId, {
+      result: toolResult.data,
+      timestamp: Date.now(),
+      toolName,
+      priceSat,
+    });
+
+    console.log(`[x402-bch] ✅ Tool "${toolName}" executed OK → result cached (id: ${resultId.slice(0, 8)}) → issuing 402`);
+
+    return res.status(402).json({
+      accepts: [{
+        scheme: 'x402-bch',
+        payTo: toolProviderAddr,
+        priceUSD,
+        amount: priceBCH,
+        maxAmountRequired: priceBCH,
+        unit: 'BCH',
+        satoshis: priceSat,
+        bchUsdRate: bchRate,
+        network: 'bch:chipnet',
+        resultId,                         // ← client must include X-Result-Id to claim
+        expiresAt: Date.now() + RESULT_TTL_MS,
+        description: `Result ready! Pay $${priceUSD.toFixed(2)} USD ≈ ${priceBCH.toFixed(6)} tBCH to claim within 5 min`,
+      }]
+    });
+  }
+
+
+  // Parse payment header
+  let txHash = xPaymentTx;
+  let payerAddr = '';
+  let claimedAmount = 0;
+
+  if (xPaymentHeader) {
+    try {
+      const payload = JSON.parse(Buffer.from(xPaymentHeader, 'base64').toString('utf-8'));
+      txHash = txHash || payload.txHash;
+      payerAddr = payload.from || '';
+      claimedAmount = payload.amount || 0;
+    } catch (e) {
+      console.warn('[x402-bch] Could not parse X-Payment header:', e.message);
+    }
+  }
+
+  if (!txHash) {
+    return res.status(400).json({ error: 'Missing BCH payment transaction hash' });
+  }
+
+  // Prevent replay attacks
+  if (seenTxHashes.has(txHash)) {
+    return res.status(403).json({ error: 'Payment tx already used (replay rejected)' });
+  }
+
+  console.log(`[x402-bch] Verifying BCH payment tx ${txHash} for ${toolName}...`);
+  try {
+    const { totalPaidSat } = await verifyBchPayment(txHash, toolProviderAddr, priceSat);
+
+    // Mark tx as seen
+    seenTxHashes.add(txHash);
+    // Cleanup old seen hashes after 24h to prevent unbounded growth
+    setTimeout(() => seenTxHashes.delete(txHash), 24 * 60 * 60 * 1000);
+
+    console.log(`[x402-bch] ✓ Payment verified: ${totalPaidSat} sat from ${payerAddr || '?'} to ${toolProviderAddr}`);
+
+    const serverReceipt = {
+      verified: true,
+      timestamp: new Date().toISOString(),
+      txHash,
+      payTo: toolProviderAddr,
+      payer: payerAddr,
+      satoshis: totalPaidSat,
+      bch: (totalPaidSat / 1e8).toFixed(8),
+      network: 'bch:chipnet',
+      toolName,
+      explorerUrl: `${CHIPNET_EXPLORER}${txHash}`,
+      verifiedBy: 'x402-bch-chipnet',
+    };
+
+    // Attach receipt to response
+    const originalJson = res.json.bind(res);
+    res.json = async function (body) {
+      res.set('X-Payment-Receipt', JSON.stringify(serverReceipt));
+      if (typeof body === 'object' && body !== null) {
+        body.escrowReceipt = serverReceipt;
+      }
+      return originalJson(body);
+    };
+
+    console.log(`[x402-bch] Payment verified → executing tool ${toolName}...`);
     next();
+
+  } catch (verifyError) {
+    console.error('[x402-bch] Verification failed:', verifyError.message);
+    return res.status(402).json({ error: 'BCH payment verification failed', details: verifyError.message });
   }
 });
 
 app.get("/escrow-info", (req, res) => {
   res.json({
-    escrowContract: ESCROW_CONTRACT_ADDR,
-    tokenContract: TOKEN_CONTRACT_ADDR,
-    tokenDecimals: TOKEN_DECIMALS,
-    chain: "Smart Bitcoin Cash Testnet",
-    chainId: BCH_CHAIN_ID,
-    rpc: BCH_RPC,
-    explorer: "https://testnet.bscscan.com"
+    network: 'bch:chipnet',
+    toolProviderAddr: TOOL_PROVIDER_ADDR || 'NOT SET',
+    defaultPriceBCH: DEFAULT_TOOL_PRICE_BCH,
+    explorer: CHIPNET_EXPLORER,
+    faucet: 'https://tbch.googol.cash',
+    note: 'Native BCH chipnet — no EVM escrow contract needed'
   });
 });
 
@@ -570,7 +686,7 @@ app.post("/tools/:toolName", async (req, res, next) => {
   }
 });
 
-loadTools();
+
 
 app.get("/tools", (req, res) => {
   console.log('[Server] Fetching marketplace tools list');
@@ -583,18 +699,21 @@ app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     message: "MCP Tool Server is running",
-    chain: "Smart Bitcoin Cash Testnet",
-    chainId: BCH_CHAIN_ID,
-    escrowContract: ESCROW_CONTRACT_ADDR || "NOT SET",
-    tokenContract: TOKEN_CONTRACT_ADDR
+    network: CHIPNET_NETWORK,
+    toolProviderAddr: TOOL_PROVIDER_ADDR || "NOT SET — set TOOL_PROVIDER_ADDR in .env",
+    defaultPriceBCH: DEFAULT_TOOL_PRICE_BCH,
+    explorer: CHIPNET_EXPLORER,
+    faucet: "https://tbch.googol.cash"
   });
 });
 
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 MCP Tool Server running on port ${PORT}`);
-  console.log(`🔗 Chain: Smart Bitcoin Cash Testnet (Chain ID: ${BCH_CHAIN_ID})`);
-  console.log(`💰 Token: ${TOKEN_CONTRACT_ADDR}`);
-  console.log(`🔒 Escrow Contract: ${ESCROW_CONTRACT_ADDR || "NOT SET — deploy via Remix and set ESCROW_CONTRACT_ADDRESS in .env"}`);
+  console.log(`🚀 BCH Agent402 Tool Server running on port ${PORT}`);
+  console.log(`⛓  Network: BCH ${CHIPNET_NETWORK}`);
+  console.log(`💸 Tool provider BCH addr: ${TOOL_PROVIDER_ADDR || 'NOT SET — set TOOL_PROVIDER_ADDR in .env'}`);
+  console.log(`💰 Default tool price: $${DEFAULT_TOOL_PRICE_USD} USD (≈ BCH at live rate)`);
+  console.log(`🔍 Explorer: ${CHIPNET_EXPLORER}`);
+  console.log(`🚰 Faucet: https://tbch.googol.cash`);
 });

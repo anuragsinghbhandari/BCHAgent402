@@ -332,10 +332,11 @@ const AgentInterface = () => {
             case 'payment_required':
               setProcessingStatus(prev => ({
                 ...prev,
-                message: `Payment Required: ${formatSFUEL(progress.amount)} for ${progress.toolName}`,
+                message: `Payment Required: ${formatSFUEL(progress.amount)} for ${progress.toolName || 'tool'}`,
                 type: 'payment',
                 args: progress.args,
                 amount: progress.amount,
+                amountBCH: progress.amountBCH,
                 toolName: progress.toolName,
                 txHash: prev?.txHash,
                 receipt: progress.receipt
@@ -344,17 +345,21 @@ const AgentInterface = () => {
             case 'payment_confirmed':
               setProcessingStatus(prev => ({
                 ...prev,
-                message: `Payment Confirmed!`,
+                message: `Payment Confirmed! ${formatSFUEL(progress.amount)}`,
                 type: 'success',
                 args: progress.args,
+                amount: progress.amount,
+                amountBCH: progress.amountBCH,
                 txHash: progress.txHash,
                 receipt: progress.receipt
               }));
               addNotification({
-                message: 'Payment Successful',
-                subtext: `Amount: ${formatSFUEL(progress.amount)}`,
+                message: `💸 Payment Sent — ${formatSFUEL(progress.amount)}`,
+                subtext: progress.txHash
+                  ? `Tx: ${progress.txHash.slice(0, 16)}... | ${progress.amountBCH?.toFixed?.(6) || ''} tBCH`
+                  : `Amount: ${formatSFUEL(progress.amount)}`,
                 type: 'success',
-                duration: 5000,
+                duration: 6000,
                 args: progress.args || processingStatus?.args
               });
               break;

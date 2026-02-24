@@ -173,26 +173,26 @@ const AddTool = () => {
 
                         <div className="form-row">
                             <div className="form-group half">
-                                <label>Price (USDC)</label>
+                                <label>Price per call (USD)</label>
                                 <input
                                     type="number"
                                     name="price"
                                     value={formData.price}
                                     onChange={handleChange}
-                                    placeholder="0.5"
-                                    step="0.1"
+                                    placeholder="0.05"
+                                    step="0.01"
                                     required
                                     disabled={loading}
                                 />
                             </div>
                             <div className="form-group half">
-                                <label>Wallet Address (Optional)</label>
+                                <label>BCH Wallet Address (Optional)</label>
                                 <input
                                     type="text"
                                     name="walletAddress"
                                     value={formData.walletAddress}
                                     onChange={handleChange}
-                                    placeholder="G..."
+                                    placeholder="bchtest:q..."
                                     disabled={loading}
                                 />
                             </div>

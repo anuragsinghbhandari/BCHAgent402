@@ -61,7 +61,8 @@ const ProcessingMessage = ({ status }) => {
                 {isExpanded && (args || toolName || amount) && (
                     <div className="processing-details">
                         {toolName && <div><strong>Tool:</strong> {toolName}</div>}
-                        {amount && <div><strong>Cost:</strong> {amount} LINK</div>}
+                        {amount && <div><strong>Cost:</strong> ${parseFloat(amount).toFixed(2)} USD</div>}
+
                         {args && (
                             <div>
                                 <strong>Arguments:</strong>

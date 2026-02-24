@@ -1,7 +1,5 @@
-import { ethers } from "ethers";
-import { BCH_CHAIN, TOKEN_ADDRESS, TOKEN_DECIMALS } from "../config/bch";
 import envConfig from '../config/env';
-import { getAgentWallet } from './agentWallet';
+
 
 const toolDataMap = new Map();
 
@@ -83,7 +81,7 @@ export const fetchMarketplaceTools = async () => {
         price: extractedPrice
       });
 
-      const llmDescription = `${tool.description} (Cost: ${extractedPrice} TOKEN on SmartBCH Testnet)`;
+      const llmDescription = `${tool.description.replace(/\[?Cost:.*?(SmartBCH|Testnet|TOKEN)[^\]]*\]?/gi, '').trim()} [Cost: $${extractedPrice} USD via BCH chipnet]`;
 
       const declaration = {
         type: "function",
@@ -108,201 +106,18 @@ export const fetchMarketplaceTools = async () => {
 
 
 export const callPaidTool = async (toolName, params) => {
-  console.log(`[x402] calling paid tool: ${toolName}`);
-
-  const receipt = {
-    receiptId: `x402-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    protocol: "x402-bch-escrow",
-    phases: {
-      intent: { status: "pending", timestamp: null },
-      authorization: { status: "pending", timestamp: null },
-      settlement: { status: "pending", timestamp: null },
-      delivery: { status: "pending", timestamp: null }
-    },
-    outcome: "pending",
-    failedAt: null,
-    error: null
+  const { executeToolInWorker } = await import('./workerPool.js');
+  const result = await executeToolInWorker(toolName, params);
+  return {
+    success: result.success,
+    data: result.data,
+    toolName,
+    txHash: result.txHash,
+    receipt: result.receipt,
+    error: result.error,
   };
-
-  const toolUrl = `${envConfig.MARKETPLACE_URL}/tools/${toolName}`;
-
-  try {
-    receipt.phases.intent.timestamp = new Date().toISOString();
-    receipt.phases.intent.toolName = toolName;
-    receipt.phases.intent.toolEndpoint = toolUrl;
-    receipt.phases.intent.params = params;
-
-    let response = await fetch(toolUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params)
-    });
-
-    if (response.status !== 402) {
-      receipt.phases.intent.status = "complete";
-      receipt.phases.intent.paymentRequired = false;
-      receipt.phases.authorization.status = "skipped";
-      receipt.phases.settlement.status = "skipped";
-
-      if (response.ok) {
-        receipt.phases.delivery.timestamp = new Date().toISOString();
-        receipt.phases.delivery.status = "complete";
-        receipt.phases.delivery.httpStatus = response.status;
-        const data = await response.json();
-        receipt.phases.delivery.toolResponse = data;
-        receipt.outcome = "success";
-        return { success: true, data, toolName, receipt };
-      } else {
-        throw new Error(`Tool returned ${response.status} ${response.statusText}`);
-      }
-    }
-
-    const challenge = await response.json();
-    const x402Req = challenge.accepts?.[0];
-
-    if (!x402Req) {
-      throw new Error("No x402 payment requirements in 402 challenge");
-    }
-
-    const escrowAddress = x402Req.payTo || x402Req.escrowContract;
-    const requiredAmount = BigInt(x402Req.maxAmountRequired || x402Req.amount || 0);
-
-    receipt.phases.intent.status = "complete";
-    receipt.phases.intent.paymentRequired = true;
-    receipt.phases.intent.challenge = {
-      payTo: escrowAddress,
-      amount: requiredAmount.toString(),
-      asset: x402Req.asset,
-      network: x402Req.network
-    };
-    console.log("[x402] Intent complete. Challenge:", receipt.phases.intent.challenge);
-
-    receipt.phases.authorization.timestamp = new Date().toISOString();
-
-    const agentWallet = getAgentWallet();
-    const address = agentWallet.address;
-    const signer = agentWallet;
-
-    receipt.phases.authorization.status = "complete";
-    receipt.phases.authorization.authorizedBy = address;
-    receipt.phases.authorization.network = `eip155:${BCH_CHAIN.id}`;
-    console.log("[x402] Authorization: using agent wallet", address);
-
-    receipt.phases.settlement.timestamp = new Date().toISOString();
-
-    const ERC20_ABI = [
-      "function transfer(address to, uint256 amount) returns (bool)",
-      "function balanceOf(address account) view returns (uint256)"
-    ];
-    const tokenContract = new ethers.Contract(TOKEN_ADDRESS, ERC20_ABI, signer);
-
-    const tokenBalance = await tokenContract.balanceOf(address);
-    console.log(`[x402] TOKEN Balance: ${ethers.formatUnits(tokenBalance, TOKEN_DECIMALS)}, Required: ${ethers.formatUnits(requiredAmount, TOKEN_DECIMALS)}`);
-
-    if (tokenBalance < requiredAmount) {
-      receipt.phases.settlement.status = "failed";
-      receipt.outcome = "failed";
-      receipt.failedAt = "settlement";
-      receipt.error = `Insufficient TOKEN balance. Have: ${ethers.formatUnits(tokenBalance, TOKEN_DECIMALS)}, Need: ${ethers.formatUnits(requiredAmount, TOKEN_DECIMALS)}`;
-      throw new Error(receipt.error);
-    }
-
-    const txResponse = await tokenContract.transfer(escrowAddress, requiredAmount);
-    console.log(`[x402] Tx Sent:`, txResponse.hash);
-    const txReceipt = await txResponse.wait();
-
-    if (!txReceipt || txReceipt.status === 0) {
-      throw new Error(`Token transfer failed. Tx: ${txResponse.hash}`);
-    }
-
-    receipt.phases.settlement.status = "complete";
-    receipt.phases.settlement.txHash = txResponse.hash;
-    receipt.phases.settlement.chain = "Smart Bitcoin Cash Testnet";
-    receipt.phases.settlement.chainId = BCH_CHAIN.id;
-    receipt.phases.settlement.from = address;
-    receipt.phases.settlement.to = escrowAddress;
-    receipt.phases.settlement.amount = requiredAmount.toString();
-    receipt.phases.settlement.asset = "TOKEN";
-    receipt.phases.settlement.blockNumber = txReceipt?.blockNumber;
-    receipt.phases.settlement.explorerUrl = `https://blockhead.info/explorer/smartbch-testnet/tx/${txResponse.hash}`;
-    console.log("[x402] Settlement complete. Block:", txReceipt?.blockNumber);
-
-    receipt.phases.delivery.timestamp = new Date().toISOString();
-
-    const paymentPayload = {
-      scheme: 'x402',
-      txHash: txResponse.hash,
-      from: address,
-      to: escrowAddress,
-      amount: requiredAmount.toString(),
-      asset: TOKEN_ADDRESS,
-      chainId: BCH_CHAIN.id,
-      network: `eip155:${BCH_CHAIN.id}`,
-      timestamp: Date.now()
-    };
-    const paymentHeader = btoa(JSON.stringify(paymentPayload));
-
-    response = await fetch(toolUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Payment": paymentHeader,
-        "X-Payment-Tx": txResponse.hash,
-        "X-Payment-Chain": String(BCH_CHAIN.id)
-      },
-      body: JSON.stringify(params)
-    });
-
-    if (!response.ok) {
-      receipt.phases.delivery.status = "failed";
-      receipt.phases.delivery.httpStatus = response.status;
-      receipt.outcome = "failed";
-      receipt.failedAt = "delivery";
-      receipt.error = `Tool returned ${response.status} after payment`;
-      throw new Error(receipt.error);
-    }
-
-    const serverReceiptHeader = response.headers.get('X-Payment-Receipt');
-    if (serverReceiptHeader) {
-      try { receipt.serverAttestation = JSON.parse(serverReceiptHeader); } catch (e) { }
-    }
-
-    const data = await response.json();
-    receipt.phases.delivery.status = "complete";
-    receipt.phases.delivery.httpStatus = response.status;
-    receipt.outcome = "success";
-    console.log("[x402] Delivery complete. Full receipt:", receipt.receiptId);
-
-    return {
-      success: true,
-      data,
-      toolName,
-      txHash: txResponse.hash,
-      receipt
-    };
-
-  } catch (err) {
-    if (receipt.outcome !== "failed") {
-      receipt.outcome = "failed";
-      for (const phase of ["intent", "authorization", "settlement", "delivery"]) {
-        if (receipt.phases[phase].status === "pending" && receipt.phases[phase].timestamp) {
-          receipt.phases[phase].status = "failed";
-          receipt.failedAt = phase;
-          break;
-        }
-      }
-      receipt.error = err.message;
-    }
-
-    console.error("[x402] Flow failed at:", receipt.failedAt, err.message);
-    return {
-      success: false,
-      error: err.message,
-      toolName,
-      receipt
-    };
-  }
 };
+
 export const processQueryWithGemini = async (userQuery, availableTools, onProgress, chatHistory = []) => {
   try {
     onProgress?.({ step: 'analyzing', message: 'Analyzing your request with Gemini...' });
@@ -400,17 +215,19 @@ export const processQueryWithGemini = async (userQuery, availableTools, onProgre
 
         const toolResponse = workerResult;
 
-        let finalCost = toolPrice;
-        if (toolResponse.receipt?.phases?.settlement?.amount) {
-          finalCost = (Number(toolResponse.receipt.phases.settlement.amount) / 1e18).toFixed(6);
-        }
+        // Use USD price from toolData for display; BCH amount is toolResponse.amountBCH
+        let finalCost = toolPrice;  // USD price
 
         executionDetails.push({
           toolName: functionName,
           args: functionArgs,
           reasoning: reasoning,
           cost: finalCost,
-          txHash: toolResponse.txHash,
+          txHash: toolResponse.txHash || null,
+          explorerUrl: toolResponse.txHash
+            ? `https://chipnet.imaginary.cash/tx/${toolResponse.txHash}`
+            : null,
+          amountBCH: toolResponse.amountBCH || null,
           receipt: toolResponse.receipt,
           output: toolResponse.data || toolResponse.error,
           status: toolResponse.success ? 'success' : 'failed'

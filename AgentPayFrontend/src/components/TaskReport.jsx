@@ -4,7 +4,7 @@ import { formatSFUEL } from '../utils/payment';
 import AP2Receipt from './AP2Receipt';
 
 const TaskReport = ({ report }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(true);
 
     if (!report) return null;
 
@@ -70,24 +70,29 @@ const TaskReport = ({ report }) => {
                                             <span className="detail-value">{exec.cost ? formatSFUEL(exec.cost) : 'Free'}</span>
                                         </div>
 
+                                        {/* Tx hash — prominent explorer link */}
                                         {exec.txHash && (
-                                            <div className="detail-row">
-                                                <span className="detail-label">Transaction:</span>
-                                                <span className="detail-value code-font">
-                                                    <a
-                                                        href={`https://testnet.bscscan.com/tx/${exec.txHash}`}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        style={{ color: 'inherit', textDecoration: 'none' }}
-                                                    >
-                                                        {exec.txHash.substring(0, 16)}...
-                                                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginLeft: 4 }}>
-                                                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                                                            <polyline points="15 3 21 3 21 9" />
-                                                            <line x1="10" y1="14" x2="21" y2="3" />
-                                                        </svg>
-                                                    </a>
-                                                </span>
+                                            <div className="detail-row" style={{ marginTop: 4 }}>
+                                                <span className="detail-label">Tx Hash:</span>
+                                                <a
+                                                    className="explorer-link"
+                                                    href={exec.explorerUrl || `https://chipnet.imaginary.cash/tx/${exec.txHash}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                >
+                                                    <span className="explorer-badge">🔍 View on Chipnet</span>
+                                                    <code className="tx-code">{exec.txHash.slice(0, 12)}…{exec.txHash.slice(-6)}</code>
+                                                    {exec.amountBCH && (
+                                                        <span style={{ fontSize: '0.75em', color: '#888', fontFamily: 'monospace' }}>
+                                                            {parseFloat(exec.amountBCH).toFixed(6)} tBCH
+                                                        </span>
+                                                    )}
+                                                    <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginLeft: 3, flexShrink: 0 }}>
+                                                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                                                        <polyline points="15 3 21 3 21 9" />
+                                                        <line x1="10" y1="14" x2="21" y2="3" />
+                                                    </svg>
+                                                </a>
                                             </div>
                                         )}
 
@@ -128,7 +133,7 @@ const TaskReport = ({ report }) => {
                                         <span className="detail-label">Transaction:</span>
                                         <span className="detail-value code-font">
                                             <a
-                                                href={`https://testnet.bscscan.com/tx/${txHash}`}
+                                                href={`https://chipnet.imaginary.cash/tx/${txHash}`}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                                 style={{ color: 'inherit', textDecoration: 'none' }}

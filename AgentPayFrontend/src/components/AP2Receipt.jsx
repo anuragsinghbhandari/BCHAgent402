@@ -4,8 +4,8 @@ import './AP2Receipt.css';
 const PHASE_CONFIG = {
     intent: { label: 'Intent', description: '402 Challenge', protocol: 'ap2', icon: '📡' },
     authorization: { label: 'Authorization', description: 'Mandate Signed', protocol: 'ap2', icon: '🔑' },
-    settlement: { label: 'Settlement', description: 'LINK → Escrow', protocol: 'bite', icon: '🔒' },
-    delivery: { label: 'Delivery', description: 'Result + Release', protocol: 'both', icon: '✅' }
+    settlement: { label: 'Settlement', description: 'tBCH → Tool Provider', protocol: 'bch', icon: '🔒' },
+    delivery: { label: 'Delivery', description: 'Result Delivered', protocol: 'both', icon: '✅' }
 };
 
 const PhaseStatusIcon = ({ status }) => {
@@ -17,11 +17,11 @@ const PhaseStatusIcon = ({ status }) => {
 
 const ProtocolTag = ({ type }) => {
     if (type === 'ap2') return <span className="proto-tag proto-ap2">x402</span>;
-    if (type === 'bite') return <span className="proto-tag proto-bite">SmartBCH Escrow</span>;
+    if (type === 'bch') return <span className="proto-tag proto-bite">BCH chipnet</span>;
     if (type === 'both') return (
         <>
             <span className="proto-tag proto-ap2">x402</span>
-            <span className="proto-tag proto-bite">SmartBCH Escrow</span>
+            <span className="proto-tag proto-bite">BCH chipnet</span>
         </>
     );
     return null;
@@ -56,7 +56,7 @@ const IntentDetails = ({ phase }) => (
                         {phase.challenge.escrow && <span className="inline-badge escrow-inline">ESCROW</span>}
                     </span>
                 </div>
-                <div className="detail-item"><span className="detail-key">Amount</span><span className="detail-val">{(Number(phase.challenge.amount) / 1e18).toFixed(2)} LINK</span></div>
+                <div className="detail-item"><span className="detail-key">Amount</span><span className="detail-val">{parseFloat(phase.challenge.amount).toFixed(6)} tBCH</span></div>
                 {phase.challenge.toolProvider && (
                     <div className="detail-item"><span className="detail-key">Provider</span><span className="detail-val">{shortenAddr(phase.challenge.toolProvider)}</span></div>
                 )}
@@ -101,13 +101,13 @@ const SettlementDetails = ({ phase }) => (
                 </span>
             </div>
         )}
-        {phase.amount && <div className="detail-item"><span className="detail-key">Amount</span><span className="detail-val">{(Number(phase.amount) / 1e18).toFixed(2)} LINK</span></div>}
+        {phase.amount && <div className="detail-item"><span className="detail-key">Amount</span><span className="detail-val">{parseFloat(phase.amount).toFixed(6)} tBCH</span></div>}
         {phase.blockNumber && <div className="detail-item"><span className="detail-key">Block</span><span className="detail-val">{phase.blockNumber}</span></div>}
         {phase.chain && <div className="detail-item"><span className="detail-key">Chain</span><span className="detail-val">{phase.chain}</span></div>}
         {phase.escrow && (
             <div className="escrow-hold-banner">
                 <span className="escrow-hold-icon">🔒</span>
-                <span>Funds held in SmartBCH Escrow until tool delivers</span>
+                <span>Funds sent to tool provider on BCH chipnet</span>
             </div>
         )}
     </div>
@@ -214,7 +214,7 @@ const AP2Receipt = ({ receipt }) => {
                 <div className="ap2-receipt-title">
                     <div className="protocol-badges">
                         <span className="proto-tag proto-ap2">x402</span>
-                        {isEscrow && <span className="proto-tag proto-bite">SmartBCH Escrow</span>}
+                        {isEscrow && <span className="proto-tag proto-bite">BCH chipnet</span>}
                     </div>
                     <span className="receipt-label">Payment Receipt</span>
                     <span className="receipt-id">{receipt.receiptId}</span>

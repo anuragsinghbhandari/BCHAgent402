@@ -268,7 +268,7 @@
     grid-template-columns: repeat(4, 1fr);
 }
 
-/* Dark Variant for BITE v2 */
+/* Dark Variant for BCH Engine section */
 .grid-cell.dark {
     background: #000 !important;
     color: #fff !important;
@@ -387,4 +387,45 @@
     .hero-ctas {
         flex-direction: column;
     }
+}
+
+/* Footer bottom row */
+.footer-bottom {
+    border-top: 2px solid #000;
+    margin-top: 80px;
+    padding-top: 32px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+/* Footer badge pills */
+.stellar-badge {
+    display: inline-block;
+    background: #00c853;
+    color: #fff;
+    font-size: 0.8em;
+    font-weight: 800;
+    padding: 3px 10px;
+    letter-spacing: 0.05em;
+    margin: 0 2px;
+    vertical-align: middle;
+}
+
+.x402-badge {
+    display: inline-block;
+    background: #000;
+    color: #fff;
+    font-size: 0.8em;
+    font-weight: 800;
+    padding: 3px 10px;
+    letter-spacing: 0.05em;
+    margin: 0 2px;
+    border: 2px solid #000;
+    vertical-align: middle;
 }

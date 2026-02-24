@@ -78,9 +78,12 @@ const WorkerPanel = () => {
                                     </div>
                                 ) : (
                                     <div className="worker-balances">
-                                        <span>{parseFloat(ch.balance?.bch || 0).toFixed(5)} BCHT</span>
-                                        <span>•</span>
-                                        <span>{parseFloat(ch.balance?.token || 0).toFixed(4)} TOKEN</span>
+                                        <span className="worker-bch">
+                                            {parseFloat(ch.balance?.bch || 0).toFixed(5)} tBCH
+                                        </span>
+                                        {parseFloat(ch.balance?.bch || 0) === 0 && (
+                                            <span className="worker-ondemand">funds on demand</span>
+                                        )}
                                     </div>
                                 )}
                             </div>
