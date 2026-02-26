@@ -100,7 +100,7 @@ const loadTools = async () => {
 
 app.use(express.json({ limit: '50mb' }));
 app.use(cors({
-  origin: ['http://localhost:5174', 'http://localhost:5173', "https://agent402-skale.vercel.app", "https://agent402-goodvibes.vercel.app"],
+  origin: ['http://localhost:5174', 'http://localhost:5173', "https://agent402-skale.vercel.app", "https://agent402-goodvibes.vercel.app", "https://bch-agent402-blush.vercel.app"],
   credentials: true,
   exposedHeaders: ['X-Payment-Receipt']
 }));
